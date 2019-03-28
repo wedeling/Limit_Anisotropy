@@ -27,54 +27,49 @@ def compute_VgradW_hat(w_hat_n, P):
     
     return VgradW_hat_n
 
-#compute the eddy forcing as a function of the difference of two positive semi-definite tensors
-def pos_def_tensor_eddy_force(w_hat_HF, w_hat_LF):
+def pos_def_tensor_eddy_force(w_hat):
     
     #compute streamfunctions
-    psi_hat_HF = w_hat_HF/k_squared_no_zero
-    psi_hat_HF[0,0] = 0.0
-    psi_hat_LF = w_hat_LF/k_squared_no_zero
-    psi_hat_LF[0,0] = 0.0
+    psi_hat = w_hat/k_squared_no_zero
+    psi_hat[0,0] = 0.0
     
     #compute full and projected velocities
-    u_HF = np.fft.irfft2(-ky*psi_hat_HF)
-    u_LF = np.fft.irfft2(-ky*psi_hat_LF)
-    v_HF = np.fft.irfft2(kx*psi_hat_HF)
-    v_LF = np.fft.irfft2(kx*psi_hat_LF)
+    u = np.fft.irfft2(-ky*psi_hat)
+    v = np.fft.irfft2(kx*psi_hat)
     
-    R1_11 = u_HF*u_HF
-    R1_12 = u_HF*v_HF
-    R1_22 = v_HF*v_HF
+    R_11 = u*u
+    R_12 = u*v
+    R_22 = v*v
 
-    R2_11 = u_LF*u_LF
-    R2_12 = u_LF*v_LF
-    R2_22 = v_LF*v_LF
+    R_11_hat = P_LF*np.fft.rfft2(R_11)
+    R_12_hat = P_LF*np.fft.rfft2(R_12)
+    R_22_hat = P_LF*np.fft.rfft2(R_22)
+
+    R = np.zeros([N**2, 2, 2])
+
+    R[:, 0, 0] = np.fft.irfft2(R_11_hat).flatten()
+    R[:, 0, 1] = np.fft.irfft2(R_12_hat).flatten()
+    R[:, 1, 0] = R[:, 0, 1]
+    R[:, 1, 1] = np.fft.irfft2(R_22_hat).flatten()
+
+    EF_hat = (kx**2 - ky**2)*R_12_hat + kx*ky*(R_22_hat - R_11_hat)
     
-    R1_11_hat = P_LF*np.fft.rfft2(R1_11)
-    R1_12_hat = P_LF*np.fft.rfft2(R1_12)
-    R1_22_hat = P_LF*np.fft.rfft2(R1_22)
+    return EF_hat, R
 
-    R2_11_hat = P_LF*np.fft.rfft2(R2_11)
-    R2_12_hat = P_LF*np.fft.rfft2(R2_12)
-    R2_22_hat = P_LF*np.fft.rfft2(R2_22)
+def perturbed_eddy_forcing(R1, R2):
 
-    R1 = np.zeros([N**2, 2, 2])
-    R2 = np.zeros([N**2, 2, 2])
+    R1_11_hat = P_LF*np.fft.rfft2(R1[:, 0, 0].reshape([N, N]))
+    R1_22_hat = P_LF*np.fft.rfft2(R1[:, 1, 1].reshape([N, N]))
+    R1_12_hat = P_LF*np.fft.rfft2(R1[:, 0, 1].reshape([N, N]))
 
-    R1[:, 0, 0] = np.fft.irfft2(R1_11_hat).flatten()
-    R1[:, 0, 1] = np.fft.irfft2(R1_12_hat).flatten()
-    R1[:, 1, 0] = R1[:, 0, 1]
-    R1[:, 1, 1] = np.fft.irfft2(R1_22_hat).flatten()
-
-    R2[:, 0, 0] = np.fft.irfft2(R2_11_hat).flatten()
-    R2[:, 0, 1] = np.fft.irfft2(R2_12_hat).flatten()
-    R2[:, 1, 0] = R2[:, 0, 1]
-    R2[:, 1, 1] = np.fft.irfft2(R2_22_hat).flatten()
+    R2_11_hat = P_LF*np.fft.rfft2(R2[:, 0, 0].reshape([N, N]))
+    R2_22_hat = P_LF*np.fft.rfft2(R2[:, 1, 1].reshape([N, N]))
+    R2_12_hat = P_LF*np.fft.rfft2(R2[:, 0, 1].reshape([N, N]))
 
     EF1_hat = (kx**2 - ky**2)*R1_12_hat + kx*ky*(R1_22_hat - R1_11_hat)
     EF2_hat = (kx**2 - ky**2)*R2_12_hat + kx*ky*(R2_22_hat - R2_11_hat)
-    
-    return EF1_hat - EF2_hat, R1, R2
+
+    return EF1_hat - EF2_hat
 
 #compute the eigenvalues, eigenvector angle and tke of R \in [N**2, 2, 2]
 def eigs(R):
@@ -161,10 +156,10 @@ def store_samples_hdf5():
 
 def draw_2w():
     plt.subplot(121, aspect = 'equal', title=r'$Q_1\; ' + r't = '+ str(np.around(t/day, 2)) + '\;[days]$')
-    plt.contourf(x, y, R1[:, 1, 0].reshape([N, N]), 100)
+    plt.contourf(x, y, EF_nm1_exact, 100)
     plt.colorbar()
     plt.subplot(122, aspect = 'equal', title=r'$Q_2$')
-    plt.contourf(x, y, R_check[:, 1, 0].reshape([N, N]), 100)
+    plt.contourf(x, y, EF_nm1_check, 100)
     plt.colorbar()
     plt.tight_layout()
     
@@ -365,16 +360,25 @@ for n in range(n_steps):
     if j == plot_frame_rate and plot == True:
         j = 0
         
+        #exact eddy forcing
         EF_nm1_exact = np.fft.irfft2(EF_hat_nm1_exact)
 
-        EF_hat_nm1_check, R1, R2 = pos_def_tensor_eddy_force(w_hat_nm1_HF, w_hat_nm1_LF)
-        EF_nm1_check = np.fft.irfft2(EF_hat_nm1_check)
+        EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF)
+        EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
         
-        lambda_i, theta, tke = eigs(R1)
-
+        EF_nm1_check = np.fft.irfft2(EF1_hat - EF2_hat)
+        
+        #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing
+        lambda_i, theta, tke = eigs(R2)
         eta = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
+        
+        alpha = 0.2
+        eta_star = eta + alpha*(0.0 - eta) 
 
-        R_check = reconstruct_R(tke, eta, theta)
+        R1_star = reconstruct_R(tke, eta_star, theta)
+        
+        EF_star_hat = perturbed_eddy_forcing(R1_star, R2)
+        EF_star = np.fft.irfft2(EF_star_hat)
 
         #E_HF, Z_HF = compute_E_and_Z(P_LF*w_hat_np1_HF)
         #E_LF, Z_LF = compute_E_and_Z(w_hat_np1_LF)
