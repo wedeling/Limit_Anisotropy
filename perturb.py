@@ -156,10 +156,10 @@ def store_samples_hdf5():
 
 def draw_2w():
     plt.subplot(121, aspect = 'equal', title=r'$Q_1\; ' + r't = '+ str(np.around(t/day, 2)) + '\;[days]$')
-    plt.contourf(x, y, EF_nm1_exact, 100)
+    plt.contourf(x, y, w_np1_HF, 100)
     plt.colorbar()
     plt.subplot(122, aspect = 'equal', title=r'$Q_2$')
-    plt.contourf(x, y, EF_nm1_check, 100)
+    plt.contourf(x, y, w_np1_LF, 100)
     plt.colorbar()
     plt.tight_layout()
     
@@ -276,7 +276,7 @@ state_store = False
 restart = True
 store = False
 plot = True
-eddy_forcing_type = 'exact'
+eddy_forcing_type = 'perturb'
 
 #QoI to store, First letter in caps implies an NxN field, otherwise a scalar 
 
@@ -350,6 +350,27 @@ for n in range(n_steps):
     #EXACT eddy forcing (for reference)
     if eddy_forcing_type == 'exact':
         EF_hat = EF_hat_nm1_exact
+        
+    elif eddy_forcing_type == 'perturb':
+        
+        #compute the pos semi-def tensor R2
+        EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
+        #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing
+        lambda_i, theta, tke = eigs(R2)
+        
+        #L/K
+        eta = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
+        
+        #perturb eta towards one of its limits (0 or 1)
+        alpha = 0.5
+        eta_star = eta + alpha*(1.0 - eta) 
+
+        #construct the modelled R1
+        R1_star = reconstruct_R(tke, eta_star, theta)
+        
+        #compute the model eddy forcing
+        EF_hat = perturbed_eddy_forcing(R1_star, R2)
+        
     #NO eddy forcing
     elif eddy_forcing_type == 'unparam':
         EF_hat = np.zeros([N, N/2+1])
@@ -359,6 +380,10 @@ for n in range(n_steps):
     #plot results to screen during iteration
     if j == plot_frame_rate and plot == True:
         j = 0
+        
+        #HF and LF vorticities
+        w_np1_HF = np.fft.irfft2(P_LF*w_hat_np1_HF)
+        w_np1_LF = np.fft.irfft2(w_hat_np1_LF)
         
         #exact eddy forcing
         EF_nm1_exact = np.fft.irfft2(EF_hat_nm1_exact)
@@ -372,8 +397,8 @@ for n in range(n_steps):
         lambda_i, theta, tke = eigs(R2)
         eta = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
         
-        alpha = 0.2
-        eta_star = eta + alpha*(0.0 - eta) 
+        alpha = 0.5
+        eta_star = eta + alpha*(1.0 - eta) 
 
         R1_star = reconstruct_R(tke, eta_star, theta)
         
