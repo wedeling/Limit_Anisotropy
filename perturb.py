@@ -181,8 +181,18 @@ def compute_E_and_Z(w_hat_n, verbose=True):
     E = simps(simps(e_n, axis), axis)/(2*np.pi)**2
     Z = simps(simps(z_n, axis), axis)/(2*np.pi)**2
 
+    w_hat_full = np.zeros([N, N])
+    w_hat_full[0:N, 0:N/2+1] = w_hat_n
+    w_hat_full[map_I, map_J] = np.conjugate(w_hat_n[I, J])
+    
+    psi_hat_full = w_hat_full/k_squared_no_zero_full
+    psi_hat_n[0,0] = 0.0
+
     if verbose:
         print 'Energy = ', E, ', enstrophy = ', Z
+        print np.sum(w_hat_n*np.conjugate(w_hat_n))/N**4
+        print np.sum(w_hat_full*np.conjugate(w_hat_full))/N**4
+        #print np.sum(-0.5*w_hat_full*np.conjugate(psi_hat_full))/N**4
     return E, Z
 
 """
@@ -207,12 +217,12 @@ plt.close('all')
 plt.rcParams['image.cmap'] = 'seismic'
 
 #number of gridpoints in 1D
-I = 7
-N = 2**I
+N = 2**7
 
 #2D grid
 h = 2*np.pi/N
-axis = h*np.arange(1, N+1)
+#axis = h*np.arange(1, N+1)
+axis = np.linspace(0.0, 2.0*np.pi, N)
 [x , y] = np.meshgrid(axis , axis)
 
 #frequencies
@@ -230,9 +240,21 @@ k_squared = kx**2 + ky**2
 k_squared_no_zero = np.copy(k_squared)
 k_squared_no_zero[0,0] = 1.0
 
+kx_full = np.zeros([N, N]) + 0.0j
+ky_full = np.zeros([N, N]) + 0.0j
+
+for i in range(N):
+    for j in range(N):
+        kx_full[i, j] = 1j*k[j]
+        ky_full[i, j] = 1j*k[i]
+
+k_squared_full = kx_full**2 + ky_full**2
+k_squared_no_zero_full = np.copy(k_squared_full)
+k_squared_no_zero_full[0,0] = 1.0
+
 #cutoff in pseudospectral method
 Ncutoff = N/3
-Ncutoff_LF = 2**(I-1)/3 
+Ncutoff_LF = 2**6/3 
 
 #spectral filter
 P = get_P(Ncutoff)
@@ -241,6 +263,16 @@ P_U = P - P_LF
 
 #spectral filter
 P = get_P(Ncutoff)
+
+#map
+shift = np.zeros(N).astype('int')
+for i in range(1,N):
+    shift[i] = np.int(N-i)
+
+I = range(N);J = range(np.int(N/2+1))
+
+map_I, map_J = np.meshgrid(shift[I], shift[J])
+I, J = np.meshgrid(I, J)
 
 #time scale
 Omega = 7.292*10**-5
@@ -255,28 +287,35 @@ nu_LF = 1.0/(day*Ncutoff**2*decay_time_nu)
 mu = 1.0/(day*decay_time_mu)
 
 #start, end time (in days) + time step
-t = 250.0*day
-t_end = (t + 5.0*365)*day
-#t_end = 350.0*day
+t = 0.0*day
+#t_end = (t + 5.0*365)*day
+t_end = 350.0*day
 
 dt = 0.01
 n_steps = np.ceil((t_end-t)/dt).astype('int')
+
+#number of step after which the eddy forcing is perturbed
+perturb_step = np.int(0.5*day/dt)
+#perturb_step = 1
 
 #############
 # USER KEYS #
 #############
 
 sim_ID = 'RST_TEST5'
-store_ID = 'deterministic_decay_time5.0'
+store_ID = 'test'
 plot_frame_rate = np.floor(1.0*day/dt).astype('int')
 store_frame_rate = np.floor(0.05*day/dt).astype('int')
 S = np.floor(n_steps/store_frame_rate).astype('int')
 
 state_store = False
-restart = True
+restart = False
 store = False
 plot = True
-eddy_forcing_type = 'perturb'
+eddy_forcing_type = 'exact'
+
+alpha = 0.9
+eta_limit = 0.0
 
 #QoI to store, First letter in caps implies an NxN field, otherwise a scalar 
 
@@ -350,20 +389,21 @@ for n in range(n_steps):
     #EXACT eddy forcing (for reference)
     if eddy_forcing_type == 'exact':
         EF_hat = EF_hat_nm1_exact
-        
-    elif eddy_forcing_type == 'perturb':
+
+    #perturbed model eddy forcing    
+    elif eddy_forcing_type == 'perturb' and np.mod(n, perturb_step) == 0:
         
         #compute the pos semi-def tensor R2
         EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
-        #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing
+
+        #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing, expensive
         lambda_i, theta, tke = eigs(R2)
-        
+
         #L/K
         eta = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
         
         #perturb eta towards one of its limits (0 or 1)
-        alpha = 0.5
-        eta_star = eta + alpha*(1.0 - eta) 
+        eta_star = eta + alpha*(eta_limit - eta) 
 
         #construct the modelled R1
         R1_star = reconstruct_R(tke, eta_star, theta)
@@ -405,9 +445,10 @@ for n in range(n_steps):
         EF_star_hat = perturbed_eddy_forcing(R1_star, R2)
         EF_star = np.fft.irfft2(EF_star_hat)
 
-        #E_HF, Z_HF = compute_E_and_Z(P_LF*w_hat_np1_HF)
-        #E_LF, Z_LF = compute_E_and_Z(w_hat_np1_LF)
-        
+        E_HF, Z_HF = compute_E_and_Z(P_LF*w_hat_np1_HF)
+        E_LF, Z_LF = compute_E_and_Z(w_hat_np1_LF)
+        print '------------------'
+
         drawnow(draw_2w)
         
     #store samples to dict
