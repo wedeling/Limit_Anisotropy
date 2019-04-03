@@ -135,6 +135,19 @@ def get_P(cutoff):
                 
     return P
 
+#compute spectral filter
+def get_P_full(cutoff):
+
+    P = np.ones([N, N])
+
+    for i in range(N):
+        for j in range(N):
+
+            if np.abs(kx_full[i, j]) > cutoff or np.abs(ky_full[i, j]) > cutoff:
+                P[i, j] = 0.0
+
+    return P
+
 #store samples in hierarchical data format, when sample size become very large
 def store_samples_hdf5():
   
@@ -156,11 +169,22 @@ def store_samples_hdf5():
 
 def draw_2w():
     plt.subplot(121, aspect = 'equal', title=r'$Q_1\; ' + r't = '+ str(np.around(t/day, 2)) + '\;[days]$')
-    plt.contourf(x, y, w_np1_HF, 100)
+    plt.contourf(x, y, EF_nm1_exact, 100)
     plt.colorbar()
     plt.subplot(122, aspect = 'equal', title=r'$Q_2$')
-    plt.contourf(x, y, w_np1_LF, 100)
+    plt.contourf(x, y, EF_star, 100)
     plt.colorbar()
+    plt.tight_layout()
+    
+def draw_stats():
+    plt.subplot(121, xlabel=r't')
+    plt.plot(T, energy_HF, label=r'$E^{HF}$')
+    plt.plot(T, energy_LF, label=r'$E^{LF}$')
+    plt.legend(loc=0)
+    plt.subplot(122, xlabel=r't')
+    plt.plot(T, enstrophy_HF, label=r'$Z^{HF}$')
+    plt.plot(T, enstrophy_LF, label=r'$Z^{LF}$')
+    plt.legend(loc=0)
     plt.tight_layout()
     
 #compute the spatial correlation coeffient at a given time
@@ -170,30 +194,38 @@ def spatial_corr_coef(X, Y):
 #compute the energy and enstrophy at t_n
 def compute_E_and_Z(w_hat_n, verbose=True):
     
-    psi_hat_n = w_hat_n/k_squared_no_zero
-    psi_hat_n[0,0] = 0.0
-    psi_n = np.fft.irfft2(psi_hat_n)
-    w_n = np.fft.irfft2(w_hat_n)
-    
-    e_n = -0.5*psi_n*w_n
-    z_n = 0.5*w_n**2
+#Compute stats using Simpson's integration rule    
+#    psi_hat_n = w_hat_n/k_squared_no_zero
+#    psi_hat_n[0,0] = 0.0
+#    psi_n = np.fft.irfft2(psi_hat_n)
+#    w_n = np.fft.irfft2(w_hat_n)
+#    
+#    e_n = -0.5*psi_n*w_n
+#    z_n = 0.5*w_n**2
+#
+#    E = simps(simps(e_n, axis), axis)/(2*np.pi)**2
+#    Z = simps(simps(z_n, axis), axis)/(2*np.pi)**2
 
-    E = simps(simps(e_n, axis), axis)/(2*np.pi)**2
-    Z = simps(simps(z_n, axis), axis)/(2*np.pi)**2
-
-    w_hat_full = np.zeros([N, N])
+    #compute stats using Fourier coefficients - is faster
+    #convert rfft2 coefficients to fft2 coefficients
+    w_hat_full = np.zeros([N, N]) + 0.0j
     w_hat_full[0:N, 0:N/2+1] = w_hat_n
     w_hat_full[map_I, map_J] = np.conjugate(w_hat_n[I, J])
+    w_hat_full *= P_full
     
+    #compute Fourier coefficients of stream function
     psi_hat_full = w_hat_full/k_squared_no_zero_full
-    psi_hat_n[0,0] = 0.0
+    psi_hat_full[0,0] = 0.0
+
+    #compute energy and enstrophy (density)
+    Z = 0.5*np.sum(w_hat_full*np.conjugate(w_hat_full))/N**4
+    E = -0.5*np.sum(psi_hat_full*np.conjugate(w_hat_full))/N**4
 
     if verbose:
-        print 'Energy = ', E, ', enstrophy = ', Z
-        print np.sum(w_hat_n*np.conjugate(w_hat_n))/N**4
-        print np.sum(w_hat_full*np.conjugate(w_hat_full))/N**4
-        #print np.sum(-0.5*w_hat_full*np.conjugate(psi_hat_full))/N**4
-    return E, Z
+        #print 'Energy = ', E, ', enstrophy = ', Z
+        print 'Energy = ', E.real, ', enstrophy = ', Z.real
+
+    return E.real, Z.real
 
 """
 ***************************
@@ -217,7 +249,7 @@ plt.close('all')
 plt.rcParams['image.cmap'] = 'seismic'
 
 #number of gridpoints in 1D
-N = 2**7
+N = 2**9
 
 #2D grid
 h = 2*np.pi/N
@@ -256,21 +288,20 @@ k_squared_no_zero_full[0,0] = 1.0
 Ncutoff = N/3
 Ncutoff_LF = 2**6/3 
 
-#spectral filter
+#spectral filter for the real FFT2
 P = get_P(Ncutoff)
 P_LF = get_P(Ncutoff_LF)
 P_U = P - P_LF
 
-#spectral filter
-P = get_P(Ncutoff)
+#spectral filter for the full FFT2 (used in compute_E_Z)
+P_full = get_P_full(Ncutoff_LF)
 
-#map
+#map from the rfft2 coefficient indices to fft2 coefficient indices
+#Use: see compute_E_Z subroutine
 shift = np.zeros(N).astype('int')
 for i in range(1,N):
     shift[i] = np.int(N-i)
-
 I = range(N);J = range(np.int(N/2+1))
-
 map_I, map_J = np.meshgrid(shift[I], shift[J])
 I, J = np.meshgrid(I, J)
 
@@ -282,8 +313,8 @@ day = 24*60**2*Omega
 decay_time_nu = 5.0
 decay_time_mu = 90.0
 nu = 1.0/(day*Ncutoff**2*decay_time_nu)
-#nu_LF = 1.0/(day*Ncutoff_LF**2*decay_time_nu)
-nu_LF = 1.0/(day*Ncutoff**2*decay_time_nu)
+nu_LF = 1.0/(day*Ncutoff_LF**2*decay_time_nu)
+#nu_LF = 1.0/(day*Ncutoff**2*decay_time_nu)
 mu = 1.0/(day*decay_time_mu)
 
 #start, end time (in days) + time step
@@ -291,7 +322,8 @@ t = 0.0*day
 #t_end = (t + 5.0*365)*day
 t_end = 350.0*day
 
-dt = 0.01
+#time step
+dt = 0.005
 n_steps = np.ceil((t_end-t)/dt).astype('int')
 
 #number of step after which the eddy forcing is perturbed
@@ -312,9 +344,9 @@ state_store = False
 restart = False
 store = False
 plot = True
-eddy_forcing_type = 'exact'
+eddy_forcing_type = 'perturb'
 
-alpha = 0.9
+alpha = 0.25
 eta_limit = 0.0
 
 #QoI to store, First letter in caps implies an NxN field, otherwise a scalar 
@@ -377,6 +409,7 @@ j = 0; j2 = 0; idx = 0
 
 if plot == True:
     plt.figure()
+    energy_HF = []; energy_LF = []; enstrophy_HF = []; enstrophy_LF = []; T = []
 
 #time loop
 for n in range(n_steps):    
@@ -425,31 +458,47 @@ for n in range(n_steps):
         w_np1_HF = np.fft.irfft2(P_LF*w_hat_np1_HF)
         w_np1_LF = np.fft.irfft2(w_hat_np1_LF)
         
+#        w_hat2 = np.zeros([N, N]) + 0.0j
+#        w_hat2[0:N, 0:np.int(N/2+1)] = w_hat_np1_HF
+#        w_hat2[map_I, map_J] = np.conjugate(w_hat_np1_HF[I, J])
+#        test = np.fft.ifft2(P_full*w_hat2)
+        
         #exact eddy forcing
         EF_nm1_exact = np.fft.irfft2(EF_hat_nm1_exact)
 
+        #pos semi-def eddy forcing tensor of the HF part
         EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF)
+        #pos semi-def eddy forcing tensor of the LF part
         EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
         
+        #check: should be the same as the exact eddy forcing, if the system
+        #is forced by the exact eddy forcing
         EF_nm1_check = np.fft.irfft2(EF1_hat - EF2_hat)
         
         #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing
         lambda_i, theta, tke = eigs(R2)
         eta = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
         
-        alpha = 0.5
+        #perturbed eta
         eta_star = eta + alpha*(1.0 - eta) 
 
+        #reconstuct R1 with the perturbed eta
         R1_star = reconstruct_R(tke, eta_star, theta)
         
+        #compute the perturbed eddy forcing
         EF_star_hat = perturbed_eddy_forcing(R1_star, R2)
         EF_star = np.fft.irfft2(EF_star_hat)
 
+        #compute stats
         E_HF, Z_HF = compute_E_and_Z(P_LF*w_hat_np1_HF)
         E_LF, Z_LF = compute_E_and_Z(w_hat_np1_LF)
         print '------------------'
+        
+        energy_HF.append(E_HF); energy_LF.append(E_LF)
+        enstrophy_HF.append(Z_HF); enstrophy_LF.append(Z_LF)
+        T.append(t)
 
-        drawnow(draw_2w)
+        drawnow(draw_stats)
         
     #store samples to dict
     if j2 == store_frame_rate and store == True:

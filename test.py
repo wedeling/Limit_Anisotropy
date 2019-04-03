@@ -50,7 +50,7 @@ plt.close('all')
 plt.rcParams['image.cmap'] = 'seismic'
 
 #number of gridpoints in 1D
-I = 3
+I = 7
 N = 2**I
 
 #2D grid
@@ -97,7 +97,7 @@ P = get_P(Ncutoff)
 P_full = get_P_full(Ncutoff)
 
 #initial condition
-w = np.sin(4.0*x)*np.sin(4.0*y) + 0.4*np.cos(3.0*x)*np.cos(3.0*y) + \
+w = np.sin(4.0*x)*np.sin(4.0*y)*np.exp(-x) + 0.4*np.cos(3.0*x)*np.cos(3.0*y) + \
     0.3*np.cos(5.0*x)*np.cos(5.0*y) + 0.02*np.sin(x) + 0.02*np.cos(y)
 
 w_squared = w**2
