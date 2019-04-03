@@ -169,10 +169,10 @@ def store_samples_hdf5():
 
 def draw_2w():
     plt.subplot(121, aspect = 'equal', title=r'$Q_1\; ' + r't = '+ str(np.around(t/day, 2)) + '\;[days]$')
-    plt.contourf(x, y, EF_nm1_exact, 100)
+    plt.contourf(x, y, w_np1_HF, 100)
     plt.colorbar()
     plt.subplot(122, aspect = 'equal', title=r'$Q_2$')
-    plt.contourf(x, y, EF_star, 100)
+    plt.contourf(x, y, eta.reshape([N, N]), 100)
     plt.colorbar()
     plt.tight_layout()
     
@@ -249,7 +249,7 @@ plt.close('all')
 plt.rcParams['image.cmap'] = 'seismic'
 
 #number of gridpoints in 1D
-N = 2**9
+N = 2**7
 
 #2D grid
 h = 2*np.pi/N
@@ -318,12 +318,12 @@ nu_LF = 1.0/(day*Ncutoff_LF**2*decay_time_nu)
 mu = 1.0/(day*decay_time_mu)
 
 #start, end time (in days) + time step
-t = 0.0*day
+t = 250.0*day
 #t_end = (t + 5.0*365)*day
 t_end = 350.0*day
 
 #time step
-dt = 0.005
+dt = 0.01
 n_steps = np.ceil((t_end-t)/dt).astype('int')
 
 #number of step after which the eddy forcing is perturbed
@@ -341,13 +341,13 @@ store_frame_rate = np.floor(0.05*day/dt).astype('int')
 S = np.floor(n_steps/store_frame_rate).astype('int')
 
 state_store = False
-restart = False
+restart = True
 store = False
 plot = True
-eddy_forcing_type = 'perturb'
+eddy_forcing_type = 'exact'
 
-alpha = 0.25
-eta_limit = 0.0
+alpha = 0.99
+eta_limit = 1.0
 
 #QoI to store, First letter in caps implies an NxN field, otherwise a scalar 
 
@@ -417,7 +417,7 @@ for n in range(n_steps):
     #solve for next time step
     w_hat_np1_HF, VgradW_hat_n_HF = get_w_hat_np1(w_hat_n_HF, w_hat_nm1_HF, VgradW_hat_nm1_HF, P, norm_factor)
   
-    EF_hat_nm1_exact = P_LF*VgradW_hat_nm1_HF - VgradW_hat_nm1_LF 
+    EF_hat_nm1_exact = P_LF*VgradW_hat_nm1_HF - VgradW_hat_nm1_LF + (nu_LF - nu)*k_squared*w_hat_nm1_LF
 
     #EXACT eddy forcing (for reference)
     if eddy_forcing_type == 'exact':
@@ -498,7 +498,8 @@ for n in range(n_steps):
         enstrophy_HF.append(Z_HF); enstrophy_LF.append(Z_LF)
         T.append(t)
 
-        drawnow(draw_stats)
+        #drawnow(draw_stats)
+        drawnow(draw_2w)
         
     #store samples to dict
     if j2 == store_frame_rate and store == True:
