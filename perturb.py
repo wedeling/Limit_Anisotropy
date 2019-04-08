@@ -125,10 +125,10 @@ def get_w_hat_np1(w_hat_n, w_hat_nm1, VgradW_hat_nm1, P, norm_factor, sgs_hat = 
 #compute spectral filter
 def get_P(cutoff):
     
-    P = np.ones([N, N/2+1])
+    P = np.ones([N, int(N/2+1)])
     
     for i in range(N):
-        for j in range(N/2+1):
+        for j in range(int(N/2+1)):
             
             if np.abs(kx[i, j]) > cutoff or np.abs(ky[i, j]) > cutoff:
                 P[i, j] = 0.0
@@ -153,7 +153,7 @@ def store_samples_hdf5():
   
     fname = HOME + '/samples/' + store_ID + '_t_' + str(np.around(t_end/day, 1)) + '.hdf5'
     
-    print 'Storing samples in ', fname
+    print('Storing samples in ', fname)
     
     if os.path.exists(HOME + '/samples') == False:
         os.makedirs(HOME + '/samples')
@@ -209,7 +209,7 @@ def compute_E_and_Z(w_hat_n, verbose=True):
     #compute stats using Fourier coefficients - is faster
     #convert rfft2 coefficients to fft2 coefficients
     w_hat_full = np.zeros([N, N]) + 0.0j
-    w_hat_full[0:N, 0:N/2+1] = w_hat_n
+    w_hat_full[0:N, 0:int(N/2+1)] = w_hat_n
     w_hat_full[map_I, map_J] = np.conjugate(w_hat_n[I, J])
     w_hat_full *= P_full
     
@@ -223,7 +223,7 @@ def compute_E_and_Z(w_hat_n, verbose=True):
 
     if verbose:
         #print 'Energy = ', E, ', enstrophy = ', Z
-        print 'Energy = ', E.real, ', enstrophy = ', Z.real
+        print('Energy = ', E.real, ', enstrophy = ', Z.real)
 
     return E.real, Z.real
 
@@ -235,7 +235,8 @@ def compute_E_and_Z(w_hat_n, verbose=True):
 
 import numpy as np
 import matplotlib.pyplot as plt
-import os, cPickle
+import os
+import _pickle as cPickle
 import h5py
 from drawnow import drawnow
 from scipy.integrate import simps
@@ -260,11 +261,11 @@ axis = np.linspace(0.0, 2.0*np.pi, N)
 #frequencies
 k = np.fft.fftfreq(N)*N
 
-kx = np.zeros([N, N/2+1]) + 0.0j
-ky = np.zeros([N, N/2+1]) + 0.0j
+kx = np.zeros([N, int(N/2+1)]) + 0.0j
+ky = np.zeros([N, int(N/2+1)]) + 0.0j
 
 for i in range(N):
-    for j in range(N/2+1):
+    for j in range(int(N/2+1)):
         kx[i, j] = 1j*k[j]
         ky[i, j] = 1j*k[i]
 
@@ -318,9 +319,9 @@ nu_LF = 1.0/(day*Ncutoff_LF**2*decay_time_nu)
 mu = 1.0/(day*decay_time_mu)
 
 #start, end time (in days) + time step
-t = 250.0*day
+t = 0.0*day
 #t_end = (t + 5.0*365)*day
-t_end = 350.0*day
+t_end = 250.0*day
 
 #time step
 dt = 0.01
@@ -334,14 +335,14 @@ perturb_step = np.int(0.5*day/dt)
 # USER KEYS #
 #############
 
-sim_ID = 'RST_TEST5'
+sim_ID = 'LIMIT_0'
 store_ID = 'test'
 plot_frame_rate = np.floor(1.0*day/dt).astype('int')
 store_frame_rate = np.floor(0.05*day/dt).astype('int')
 S = np.floor(n_steps/store_frame_rate).astype('int')
 
-state_store = False
-restart = True
+state_store = True
+restart = False
 store = False
 plot = True
 eddy_forcing_type = 'exact'
@@ -377,10 +378,17 @@ F_hat = np.fft.rfft2(F);
 
 if restart == True:
     
-    state = cPickle.load(open(HOME + '/restart/' + sim_ID + '_t_' + str(np.around(t/day, 1)) + '.pickle'))
-    for key in state.keys():
-        print key
-        vars()[key] = state[key]
+    fname = HOME + '/restart/' + sim_ID + '_t_' + str(np.around(t/day,1)) + '.hdf5'
+    
+    #create HDF5 file
+    h5f = h5py.File(fname, 'r')
+    
+    for key in h5f.keys():
+        print(key)
+        vars()[key] = h5f[key][:]
+        
+    h5f.close()
+    
 else:
     
     #initial condition
@@ -492,7 +500,7 @@ for n in range(n_steps):
         #compute stats
         E_HF, Z_HF = compute_E_and_Z(P_LF*w_hat_np1_HF)
         E_LF, Z_LF = compute_E_and_Z(w_hat_np1_LF)
-        print '------------------'
+        print('------------------')
         
         energy_HF.append(E_HF); energy_LF.append(E_LF)
         enstrophy_HF.append(Z_HF); enstrophy_LF.append(Z_LF)
@@ -505,7 +513,7 @@ for n in range(n_steps):
     if j2 == store_frame_rate and store == True:
         j2 = 0
         
-        print 'n = ', n, ' of ', n_steps
+        print('n = ', n, ' of ', n_steps)
 
         E_HF, Z_HF = compute_E_and_Z(P_LF*w_hat_np1_HF)
         E_LF, Z_LF = compute_E_and_Z(w_hat_np1_LF)
@@ -535,18 +543,25 @@ for n in range(n_steps):
 #store the state of the system to allow for a simulation restart at t > 0
 if state_store == True:
     
-    keys = ['t', 'w_hat_nm1_HF', 'w_hat_n_HF', 'VgradW_hat_nm1_HF', \
+    keys = ['w_hat_nm1_HF', 'w_hat_n_HF', 'VgradW_hat_nm1_HF', \
             'w_hat_nm1_LF', 'w_hat_n_LF', 'VgradW_hat_nm1_LF']
-    
-    state = {}
-    
-    for key in keys:
-        state[key] = vars()[key]
     
     if os.path.exists(HOME + '/restart') == False:
         os.makedirs(HOME + '/restart')
     
-    cPickle.dump(state, open(HOME + '/restart/' + sim_ID + '_t_' + str(np.around(t_end/day,1)) + '.pickle', 'w'))
+    #cPickle.dump(state, open(HOME + '/restart/' + sim_ID + '_t_' + str(np.around(t_end/day,1)) + '.pickle', 'w'))
+    
+    fname = HOME + '/restart/' + sim_ID + '_t_' + str(np.around(t_end/day,1)) + '.hdf5'
+    
+    #create HDF5 file
+    h5f = h5py.File(fname, 'w')
+    
+    #store numpy sample arrays as individual datasets in the hdf5 file
+    for key in keys:
+        qoi = eval(key)
+        h5f.create_dataset(key, data = qoi)
+        
+    h5f.close()   
 
 #store the samples
 if store == True:
