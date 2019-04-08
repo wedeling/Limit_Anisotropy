@@ -41,9 +41,9 @@ def pos_def_tensor_eddy_force(w_hat):
     R_12 = u*v
     R_22 = v*v
 
-    R_11_hat = P_LF*np.fft.rfft2(R_11)
-    R_12_hat = P_LF*np.fft.rfft2(R_12)
-    R_22_hat = P_LF*np.fft.rfft2(R_22)
+    R_11_hat = P*np.fft.rfft2(R_11)
+    R_12_hat = P*np.fft.rfft2(R_12)
+    R_22_hat = P*np.fft.rfft2(R_22)
 
     R = np.zeros([N**2, 2, 2])
 
@@ -58,13 +58,13 @@ def pos_def_tensor_eddy_force(w_hat):
 
 def perturbed_eddy_forcing(R1, R2):
 
-    R1_11_hat = P_LF*np.fft.rfft2(R1[:, 0, 0].reshape([N, N]))
-    R1_22_hat = P_LF*np.fft.rfft2(R1[:, 1, 1].reshape([N, N]))
-    R1_12_hat = P_LF*np.fft.rfft2(R1[:, 0, 1].reshape([N, N]))
+    R1_11_hat = P*np.fft.rfft2(R1[:, 0, 0].reshape([N, N]))
+    R1_22_hat = P*np.fft.rfft2(R1[:, 1, 1].reshape([N, N]))
+    R1_12_hat = P*np.fft.rfft2(R1[:, 0, 1].reshape([N, N]))
 
-    R2_11_hat = P_LF*np.fft.rfft2(R2[:, 0, 0].reshape([N, N]))
-    R2_22_hat = P_LF*np.fft.rfft2(R2[:, 1, 1].reshape([N, N]))
-    R2_12_hat = P_LF*np.fft.rfft2(R2[:, 0, 1].reshape([N, N]))
+    R2_11_hat = P*np.fft.rfft2(R2[:, 0, 0].reshape([N, N]))
+    R2_22_hat = P*np.fft.rfft2(R2[:, 1, 1].reshape([N, N]))
+    R2_12_hat = P*np.fft.rfft2(R2[:, 0, 1].reshape([N, N]))
 
     EF1_hat = (kx**2 - ky**2)*R1_12_hat + kx*ky*(R1_22_hat - R1_11_hat)
     EF2_hat = (kx**2 - ky**2)*R2_12_hat + kx*ky*(R2_22_hat - R2_11_hat)
@@ -169,7 +169,7 @@ def store_samples_hdf5():
 
 def draw_2w():
     plt.subplot(121, aspect = 'equal', title=r'$Q_1\; ' + r't = '+ str(np.around(t/day, 2)) + '\;[days]$')
-    plt.contourf(x, y, w_np1_HF, 100)
+    plt.contourf(x, y, test1, 100)
     plt.colorbar()
     plt.subplot(122, aspect = 'equal', title=r'$Q_2$')
     plt.contourf(x, y, eta.reshape([N, N]), 100)
@@ -246,9 +246,6 @@ plt.rcParams['image.cmap'] = 'seismic'
 
 HOME = os.path.abspath(os.path.dirname(__file__))
 
-plt.close('all')
-plt.rcParams['image.cmap'] = 'seismic'
-
 #number of gridpoints in 1D
 N = 2**7
 
@@ -314,14 +311,14 @@ day = 24*60**2*Omega
 decay_time_nu = 5.0
 decay_time_mu = 90.0
 nu = 1.0/(day*Ncutoff**2*decay_time_nu)
-nu_LF = 1.0/(day*Ncutoff_LF**2*decay_time_nu)
-#nu_LF = 1.0/(day*Ncutoff**2*decay_time_nu)
+#nu_LF = 1.0/(day*Ncutoff_LF**2*decay_time_nu)
+nu_LF = 1.0/(day*Ncutoff**2*decay_time_nu)
 mu = 1.0/(day*decay_time_mu)
 
 #start, end time (in days) + time step
 t = 0.0*day
 #t_end = (t + 5.0*365)*day
-t_end = 250.0*day
+t_end = 300.0*day
 
 #time step
 dt = 0.01
@@ -338,22 +335,22 @@ perturb_step = np.int(0.5*day/dt)
 sim_ID = 'LIMIT_0'
 store_ID = 'test'
 plot_frame_rate = np.floor(1.0*day/dt).astype('int')
-store_frame_rate = np.floor(0.05*day/dt).astype('int')
+store_frame_rate = np.floor(0.5*day/dt).astype('int')
 S = np.floor(n_steps/store_frame_rate).astype('int')
 
-state_store = True
+state_store = False
 restart = False
 store = False
 plot = True
-eddy_forcing_type = 'exact'
+eddy_forcing_type = 'perturb'
 
-alpha = 0.99
-eta_limit = 1.0
+alpha = 0.0
+eta_limit = 0.0
 
 #QoI to store, First letter in caps implies an NxN field, otherwise a scalar 
 
 #prediction data QoI
-QoI = ['e_HF', 'z_HF', 'e_LF', 'z_LF', 'rho', 't']
+QoI = ['Eta1', 'Eta2', 'Theta1', 'Theta2', 't']
 Q = len(QoI)
 
 #allocate memory
@@ -367,7 +364,8 @@ if store == True:
         
         #a field
         if QoI[q][0].isupper():
-            samples[QoI[q]] = np.zeros([S, N, N/2+1]) + 0.0j
+            #samples[QoI[q]] = np.zeros([S, N, N/2+1]) + 0.0j
+            samples[QoI[q]] = np.zeros([S, N, N])
         #a scalar
         else:
             samples[QoI[q]] = np.zeros(S)
@@ -425,32 +423,33 @@ for n in range(n_steps):
     #solve for next time step
     w_hat_np1_HF, VgradW_hat_n_HF = get_w_hat_np1(w_hat_n_HF, w_hat_nm1_HF, VgradW_hat_nm1_HF, P, norm_factor)
   
-    EF_hat_nm1_exact = P_LF*VgradW_hat_nm1_HF - VgradW_hat_nm1_LF + (nu_LF - nu)*k_squared*w_hat_nm1_LF
+    EF_hat_nm1_exact = P_LF*VgradW_hat_nm1_HF - VgradW_hat_nm1_LF #+ (nu_LF - nu)*k_squared*w_hat_nm1_LF
 
     #EXACT eddy forcing (for reference)
     if eddy_forcing_type == 'exact':
         EF_hat = EF_hat_nm1_exact
 
     #perturbed model eddy forcing    
-    elif eddy_forcing_type == 'perturb' and np.mod(n, perturb_step) == 0:
+    elif eddy_forcing_type == 'perturb':# and np.mod(n, perturb_step) == 0:
         
         #compute the pos semi-def tensor R2
+        EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF)
         EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
 
         #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing, expensive
-        lambda_i, theta, tke = eigs(R2)
+        lambda1_i, theta1, tke1 = eigs(R1)
+        lambda2_i, theta2, tke2 = eigs(R2)
 
         #L/K
-        eta = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
+        eta = (lambda1_i[:,1] - lambda1_i[:,0])/(lambda1_i[:,1] + lambda1_i[:,0])
         
         #perturb eta towards one of its limits (0 or 1)
         eta_star = eta + alpha*(eta_limit - eta) 
 
         #construct the modelled R1
-        R1_star = reconstruct_R(tke, eta_star, theta)
-        
+        R1_star = reconstruct_R(tke1, eta, theta1)
         #compute the model eddy forcing
-        EF_hat = perturbed_eddy_forcing(R1_star, R2)
+        EF_hat = perturbed_eddy_forcing(R1_star, R2) #+ (nu_LF - nu)*k_squared*w_hat_nm1_LF
         
     #NO eddy forcing
     elif eddy_forcing_type == 'unparam':
@@ -466,36 +465,42 @@ for n in range(n_steps):
         w_np1_HF = np.fft.irfft2(P_LF*w_hat_np1_HF)
         w_np1_LF = np.fft.irfft2(w_hat_np1_LF)
         
+        test1 = R1[:, 1, 0].reshape([N, N])
+        test2 = R1_star[:, 1, 0].reshape([N, N])
+        
 #        w_hat2 = np.zeros([N, N]) + 0.0j
 #        w_hat2[0:N, 0:np.int(N/2+1)] = w_hat_np1_HF
 #        w_hat2[map_I, map_J] = np.conjugate(w_hat_np1_HF[I, J])
 #        test = np.fft.ifft2(P_full*w_hat2)
-        
-        #exact eddy forcing
-        EF_nm1_exact = np.fft.irfft2(EF_hat_nm1_exact)
-
-        #pos semi-def eddy forcing tensor of the HF part
-        EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF)
-        #pos semi-def eddy forcing tensor of the LF part
-        EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
-        
-        #check: should be the same as the exact eddy forcing, if the system
-        #is forced by the exact eddy forcing
-        EF_nm1_check = np.fft.irfft2(EF1_hat - EF2_hat)
-        
-        #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing
-        lambda_i, theta, tke = eigs(R2)
-        eta = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
-        
-        #perturbed eta
-        eta_star = eta + alpha*(1.0 - eta) 
-
-        #reconstuct R1 with the perturbed eta
-        R1_star = reconstruct_R(tke, eta_star, theta)
-        
-        #compute the perturbed eddy forcing
-        EF_star_hat = perturbed_eddy_forcing(R1_star, R2)
-        EF_star = np.fft.irfft2(EF_star_hat)
+#        
+#        #exact eddy forcing
+#        EF_nm1_exact = np.fft.irfft2(EF_hat_nm1_exact)
+#        
+#        EF = np.fft.irfft2(EF_hat)
+#
+#        #pos semi-def eddy forcing tensor of the HF part
+#        EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF)
+#        
+#        #pos semi-def eddy forcing tensor of the LF part
+#        EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
+#        
+#        #check: should be the same as the exact eddy forcing, if the system
+#        #is forced by the exact eddy forcing
+#        EF_nm1_check = np.fft.irfft2(EF1_hat - EF2_hat)
+#        
+#        #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing
+#        lambda_i, theta, tke = eigs(R1)
+#        eta = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
+#        
+#        #perturbed eta
+#        eta_star = eta + alpha*(eta_limit - eta) 
+#
+#        #reconstuct R1 with the perturbed eta
+#        R1_star = reconstruct_R(tke, eta_star, theta)
+#        
+#        #compute the perturbed eddy forcing
+#        EF_star_hat = perturbed_eddy_forcing(R1_star, R2)
+#        EF_star = np.fft.irfft2(EF_star_hat)
 
         #compute stats
         E_HF, Z_HF = compute_E_and_Z(P_LF*w_hat_np1_HF)
@@ -515,14 +520,31 @@ for n in range(n_steps):
         
         print('n = ', n, ' of ', n_steps)
 
-        E_HF, Z_HF = compute_E_and_Z(P_LF*w_hat_np1_HF)
-        E_LF, Z_LF = compute_E_and_Z(w_hat_np1_LF)
-       
-        samples['e_HF'][idx] = E_HF
-        samples['z_HF'][idx] = Z_HF
-        samples['e_LF'][idx] = E_LF
-        samples['z_LF'][idx] = Z_LF
+#        E_HF, Z_HF = compute_E_and_Z(P_LF*w_hat_np1_HF)
+#        E_LF, Z_LF = compute_E_and_Z(w_hat_np1_LF)
+#       
+#        samples['e_HF'][idx] = E_HF
+#        samples['z_HF'][idx] = Z_HF
+#        samples['e_LF'][idx] = E_LF
+#        samples['z_LF'][idx] = Z_LF
+        
+        #pos semi-def eddy forcing tensor of the HF part
+        EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF)
+        
+        #pos semi-def eddy forcing tensor of the LF part
+        EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
 
+        lambda_i, theta1, tke = eigs(R1)
+        eta1 = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
+
+        lambda_i, theta2, tke = eigs(R2)
+        eta2 = (lambda_i[:,1] - lambda_i[:,0])/(lambda_i[:,1] + lambda_i[:,0])
+        
+        samples['Eta1'][idx,:,:] = eta1.reshape([N, N])
+        samples['Eta2'][idx,:,:] = eta2.reshape([N, N])
+        samples['Theta1'][idx,:,:] = theta1.reshape([N, N])
+        samples['Theta2'][idx,:,:] = theta2.reshape([N, N])
+        
         samples['t'][idx] = t
         
         idx += 1  
