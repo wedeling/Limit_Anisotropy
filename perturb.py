@@ -316,7 +316,7 @@ nu_LF = 1.0/(day*Ncutoff**2*decay_time_nu)
 mu = 1.0/(day*decay_time_mu)
 
 #start, end time (in days) + time step
-t = 0.0*day
+t = 250.0*day
 #t_end = (t + 5.0*365)*day
 t_end = 300.0*day
 
@@ -339,13 +339,13 @@ store_frame_rate = np.floor(0.5*day/dt).astype('int')
 S = np.floor(n_steps/store_frame_rate).astype('int')
 
 state_store = False
-restart = False
+restart = True
 store = False
 plot = True
 eddy_forcing_type = 'perturb'
 
-alpha = 0.0
-eta_limit = 0.0
+alpha = 0.9
+eta_limit = 0.5
 
 #QoI to store, First letter in caps implies an NxN field, otherwise a scalar 
 
@@ -430,7 +430,7 @@ for n in range(n_steps):
         EF_hat = EF_hat_nm1_exact
 
     #perturbed model eddy forcing    
-    elif eddy_forcing_type == 'perturb':# and np.mod(n, perturb_step) == 0:
+    elif eddy_forcing_type == 'perturb' and np.mod(n, perturb_step) == 0:
         
         #compute the pos semi-def tensor R2
         EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF)
@@ -441,19 +441,20 @@ for n in range(n_steps):
         lambda2_i, theta2, tke2 = eigs(R2)
 
         #L/K
-        eta = (lambda1_i[:,1] - lambda1_i[:,0])/(lambda1_i[:,1] + lambda1_i[:,0])
+        eta = (lambda2_i[:,1] - lambda2_i[:,0])/(lambda2_i[:,1] + lambda2_i[:,0])
         
         #perturb eta towards one of its limits (0 or 1)
         eta_star = eta + alpha*(eta_limit - eta) 
 
         #construct the modelled R1
-        R1_star = reconstruct_R(tke1, eta, theta1)
+        R1_star = reconstruct_R(tke2, eta_star, theta2)
+        
         #compute the model eddy forcing
         EF_hat = perturbed_eddy_forcing(R1_star, R2) #+ (nu_LF - nu)*k_squared*w_hat_nm1_LF
         
     #NO eddy forcing
     elif eddy_forcing_type == 'unparam':
-        EF_hat = np.zeros([N, N/2+1])
+        EF_hat = np.zeros([N, int(N/2+1)])
 
     w_hat_np1_LF, VgradW_hat_n_LF = get_w_hat_np1(w_hat_n_LF, w_hat_nm1_LF, VgradW_hat_nm1_LF, P_LF, norm_factor_LF, EF_hat)
     
@@ -511,8 +512,8 @@ for n in range(n_steps):
         enstrophy_HF.append(Z_HF); enstrophy_LF.append(Z_LF)
         T.append(t)
 
-        #drawnow(draw_stats)
-        drawnow(draw_2w)
+        drawnow(draw_stats)
+        #drawnow(draw_2w)
         
     #store samples to dict
     if j2 == store_frame_rate and store == True:
