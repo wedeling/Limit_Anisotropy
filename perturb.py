@@ -79,7 +79,7 @@ def pos_def_tensor_eddy_force(w_hat, P):
     
     return EF_hat, R
 
-def perturbed_eddy_forcing(R1, R2):
+def perturbed_eddy_forcing(R1, R2, P):
 
     R1_11_hat = P*np.fft.rfft2(R1[:, 0, 0].reshape([N, N]))
     R1_22_hat = P*np.fft.rfft2(R1[:, 1, 1].reshape([N, N]))
@@ -339,7 +339,7 @@ nu_LF = 1.0/(day*Ncutoff**2*decay_time_nu)
 mu = 1.0/(day*decay_time_mu)
 
 #start, end time (in days) + time step
-t = 0.0*day
+t = 250.0*day
 #t_end = (t + 5.0*365)*day
 t_end = 300.0*day
 
@@ -362,7 +362,7 @@ store_frame_rate = np.floor(0.5*day/dt).astype('int')
 S = np.floor(n_steps/store_frame_rate).astype('int')
 
 state_store = False
-restart = False
+restart = True
 store = False
 plot = True
 eddy_forcing_type = 'lag'
@@ -410,7 +410,7 @@ if restart == True:
         vars()[key] = h5f[key][:]
         
     h5f.close()
-    
+   
 else:
     
     #initial condition
@@ -430,6 +430,9 @@ else:
     
     VgradW_hat_n_LF = compute_VgradW_hat(w_hat_n_LF, P_LF)
     VgradW_hat_nm1_LF = np.copy(VgradW_hat_n_LF)
+    
+#initialize the lag pde
+if eddy_forcing_type == 'lag':
     
     #compute the pos semi-def tensor R2
     EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_n_LF, P_LF)
@@ -470,25 +473,27 @@ for n in range(n_steps):
     elif eddy_forcing_type == 'perturb' and np.mod(n, perturb_step) == 0:
         
         #compute the pos semi-def tensor R2
-        EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF)
-        EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
+        EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF, P)
+        EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF, P_LF)
 
         #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing, expensive
         lambda1_i, theta1, tke1 = eigs(R1)
         lambda2_i, theta2, tke2 = eigs(R2)
 
         #L/K
-        eta = (lambda2_i[:,1] - lambda2_i[:,0])/(lambda2_i[:,1] + lambda2_i[:,0])
+        eta1 = (lambda1_i[:,1] - lambda1_i[:,0])/(lambda1_i[:,1] + lambda1_i[:,0])
+        eta2 = (lambda2_i[:,1] - lambda2_i[:,0])/(lambda2_i[:,1] + lambda2_i[:,0])
         
         #perturb eta towards one of its limits (0 or 1)
-        eta_star = eta + alpha*(eta_limit - eta) 
+        eta_star = eta2 + alpha*(eta_limit - eta2) 
 
         #construct the modelled R1
-        R1_star = reconstruct_R(tke2, eta_star, theta2)
+        R1_star = reconstruct_R(tke1, eta1, theta1)
         
         #compute the model eddy forcing
-        EF_hat = perturbed_eddy_forcing(R1_star, R2) #+ (nu_LF - nu)*k_squared*w_hat_nm1_LF
-        
+        EF_hat = perturbed_eddy_forcing(R1_star, R2, P_LF) #+ (nu_LF - nu)*k_squared*w_hat_nm1_LF
+    
+    #solve a lag pde for eta
     elif eddy_forcing_type == 'lag':   
         
         if np.mod(n, perturb_step) == 0:
