@@ -27,6 +27,29 @@ def compute_VgradW_hat(w_hat_n, P):
     
     return VgradW_hat_n
 
+#pseudo-spectral technique to solve for Fourier coefs of Jacobian
+def compute_VgradEta_hat(w_hat_n, eta_hat_n, P):
+    
+    #compute streamfunction
+    psi_hat_n = w_hat_n/k_squared_no_zero
+    psi_hat_n[0,0] = 0.0
+    
+    #compute jacobian in physical space
+    u_n = np.fft.irfft2(-ky*psi_hat_n)
+    eta_x_n = np.fft.irfft2(kx*eta_hat_n)
+
+    v_n = np.fft.irfft2(kx*psi_hat_n)
+    eta_y_n = np.fft.irfft2(ky*eta_hat_n)
+    
+    VgradEta_n = u_n*eta_x_n + v_n*eta_y_n
+    
+    #return to spectral space
+    VgradEta_hat_n = np.fft.rfft2(VgradEta_n)
+    
+    VgradEta_hat_n *= P
+    
+    return VgradEta_hat_n
+
 def pos_def_tensor_eddy_force(w_hat, P):
     
     #compute streamfunctions
@@ -172,7 +195,7 @@ def draw_2w():
     plt.contourf(x, y, test1, 100)
     plt.colorbar()
     plt.subplot(122, aspect = 'equal', title=r'$Q_2$')
-    plt.contourf(x, y, eta2.reshape([N, N]), 100)
+    plt.contourf(x, y, test2, 100)
     plt.colorbar()
     plt.tight_layout()
     
@@ -342,10 +365,11 @@ state_store = False
 restart = True
 store = False
 plot = True
-eddy_forcing_type = 'perturb'
+eddy_forcing_type = 'lag'
 
 alpha = 0.9
 eta_limit = 0.5
+tau = 100.0
 
 #QoI to store, First letter in caps implies an NxN field, otherwise a scalar 
 
@@ -386,7 +410,7 @@ if restart == True:
         vars()[key] = h5f[key][:]
         
     h5f.close()
-    
+   
 else:
     
     #initial condition
@@ -406,6 +430,22 @@ else:
     
     VgradW_hat_n_LF = compute_VgradW_hat(w_hat_n_LF, P_LF)
     VgradW_hat_nm1_LF = np.copy(VgradW_hat_n_LF)
+    
+#initialize the lag pde
+if eddy_forcing_type == 'lag':
+    
+    #compute the pos semi-def tensor R2
+    EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_n_LF, P_LF)
+    
+    #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing, expensive
+    lambda2_i, theta2, tke2 = eigs(R1)
+    
+    #L/K
+    eta = (lambda2_i[:,1] - lambda2_i[:,0])/(lambda2_i[:,1] + lambda2_i[:,0])
+    eta_hat_n_tilde = np.fft.rfft2(eta.reshape([N, N]))
+    eta_hat_nm1_tilde = np.copy(eta_hat_n_tilde)
+    
+    VgradEta_hat_nm1 = compute_VgradEta_hat(w_hat_nm1_LF, eta_hat_nm1_tilde, P_LF)
 
 #constant factor that appears in AB/BDI2 time stepping scheme   
 norm_factor = 1.0/(3.0/(2.0*dt) - nu*k_squared + mu)
@@ -452,6 +492,34 @@ for n in range(n_steps):
         
         #compute the model eddy forcing
         EF_hat = perturbed_eddy_forcing(R1_star, R2, P_LF) #+ (nu_LF - nu)*k_squared*w_hat_nm1_LF
+
+    #solve a lag pde for eta
+    elif eddy_forcing_type == 'lag':   
+        
+        if np.mod(n, perturb_step) == 0:
+            #compute the pos semi-def tensor R2
+            EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_n_LF, P_LF)
+            
+            #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing, expensive
+            lambda2_i, theta2, tke2 = eigs(R2)
+            
+            #L/K
+            eta = (lambda2_i[:,1] - lambda2_i[:,0])/(lambda2_i[:,1] + lambda2_i[:,0])
+            eta_hat = np.fft.rfft2(eta.reshape([N, N]))
+        
+        #solve the lag pde
+        VgradEta_hat_n = compute_VgradEta_hat(w_hat_n_LF, eta_hat_n_tilde, P_LF)
+        
+        eta_hat_np1_tilde = 2.0*dt/3.0*P_LF*(2.0/dt*eta_hat_n_tilde - eta_hat_nm1_tilde/(2.0*dt) - \
+                                             2.0*VgradEta_hat_n + VgradEta_hat_nm1 + \
+                                             tau*eta_hat - tau*eta_hat_n_tilde)
+        
+        #update variables
+        eta_hat_nm1_tilde = np.copy(eta_hat_n_tilde)
+        eta_hat_n_tilde = np.copy(eta_hat_np1_tilde)
+        VgradEta_hat_nm1 = np.copy(VgradEta_hat_n)
+        
+        EF_hat = EF_hat_nm1_exact
         
     #NO eddy forcing
     elif eddy_forcing_type == 'unparam':
@@ -467,8 +535,8 @@ for n in range(n_steps):
         w_np1_HF = np.fft.irfft2(P_LF*w_hat_np1_HF)
         w_np1_LF = np.fft.irfft2(w_hat_np1_LF)
         
-        test1 = R1[:, 1, 0].reshape([N, N])
-        test2 = R1_star[:, 1, 0].reshape([N, N])
+        test1 = np.fft.irfft2(eta_hat)
+        test2 = np.fft.irfft2(eta_hat_np1_tilde)
         
 #        w_hat2 = np.zeros([N, N]) + 0.0j
 #        w_hat2[0:N, 0:np.int(N/2+1)] = w_hat_np1_HF
@@ -513,8 +581,8 @@ for n in range(n_steps):
         enstrophy_HF.append(Z_HF); enstrophy_LF.append(Z_LF)
         T.append(t)
 
-        drawnow(draw_stats)
-        #drawnow(draw_2w)
+        #drawnow(draw_stats)
+        drawnow(draw_2w)
         
     #store samples to dict
     if j2 == store_frame_rate and store == True:
