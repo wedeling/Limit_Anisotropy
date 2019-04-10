@@ -27,7 +27,7 @@ def compute_VgradW_hat(w_hat_n, P):
     
     return VgradW_hat_n
 
-def pos_def_tensor_eddy_force(w_hat):
+def pos_def_tensor_eddy_force(w_hat, P):
     
     #compute streamfunctions
     psi_hat = w_hat/k_squared_no_zero
@@ -56,7 +56,7 @@ def pos_def_tensor_eddy_force(w_hat):
     
     return EF_hat, R
 
-def perturbed_eddy_forcing(R1, R2):
+def perturbed_eddy_forcing(R1, R2, P):
 
     R1_11_hat = P*np.fft.rfft2(R1[:, 0, 0].reshape([N, N]))
     R1_22_hat = P*np.fft.rfft2(R1[:, 1, 1].reshape([N, N]))
@@ -172,7 +172,7 @@ def draw_2w():
     plt.contourf(x, y, test1, 100)
     plt.colorbar()
     plt.subplot(122, aspect = 'equal', title=r'$Q_2$')
-    plt.contourf(x, y, eta.reshape([N, N]), 100)
+    plt.contourf(x, y, eta2.reshape([N, N]), 100)
     plt.colorbar()
     plt.tight_layout()
     
@@ -433,24 +433,25 @@ for n in range(n_steps):
     elif eddy_forcing_type == 'perturb' and np.mod(n, perturb_step) == 0:
         
         #compute the pos semi-def tensor R2
-        EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF)
-        EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF)
+        EF1_hat, R1 = pos_def_tensor_eddy_force(w_hat_nm1_HF, P)
+        EF2_hat, R2 = pos_def_tensor_eddy_force(w_hat_nm1_LF, P_LF)
 
         #eigenvalue decomposition of the closed, pos-semi-def part of the eddy forcing, expensive
         lambda1_i, theta1, tke1 = eigs(R1)
         lambda2_i, theta2, tke2 = eigs(R2)
 
         #L/K
-        eta = (lambda2_i[:,1] - lambda2_i[:,0])/(lambda2_i[:,1] + lambda2_i[:,0])
+        eta1 = (lambda1_i[:,1] - lambda1_i[:,0])/(lambda1_i[:,1] + lambda1_i[:,0])
+        eta2 = (lambda2_i[:,1] - lambda2_i[:,0])/(lambda2_i[:,1] + lambda2_i[:,0])
         
         #perturb eta towards one of its limits (0 or 1)
-        eta_star = eta + alpha*(eta_limit - eta) 
+        eta_star = eta2 + alpha*(eta_limit - eta2) 
 
         #construct the modelled R1
-        R1_star = reconstruct_R(tke2, eta_star, theta2)
+        R1_star = reconstruct_R(tke1, eta1, theta1)
         
         #compute the model eddy forcing
-        EF_hat = perturbed_eddy_forcing(R1_star, R2) #+ (nu_LF - nu)*k_squared*w_hat_nm1_LF
+        EF_hat = perturbed_eddy_forcing(R1_star, R2, P_LF) #+ (nu_LF - nu)*k_squared*w_hat_nm1_LF
         
     #NO eddy forcing
     elif eddy_forcing_type == 'unparam':
